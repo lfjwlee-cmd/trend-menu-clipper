@@ -1,0 +1,329 @@
+---
+name: trend-menu-clipper
+description: >
+  Use when the user wants to collect trending food/menu clips from YouTube
+  and/or Instagram for a specific day and turn them into a ranked visual
+  report — e.g. "트렌드 메뉴 클리핑", "요즘 뜨는 메뉴 모아줘", "어제 인스타
+  유튜브 인기 메뉴", "신메뉴 트렌드 리포트 만들어줘", or "매일 자동으로
+  업데이트되는 트렌드 메뉴 사이트 만들어줘". Filters by exact upload date and
+  a minimum engagement count, ranks the top N, and renders an HTML bento-grid
+  report. Has two modes: an on-demand manual run (no API key, login, or paid
+  service) and an optional auto-deploy mode (GitHub Actions + a free YouTube
+  API key) for unattended daily updates.
+---
+
+# Trend Menu Clipper
+
+Collects Korean food/menu content uploaded on one exact calendar date, keeps
+only items above an engagement threshold, ranks the top N, and renders them
+as a single HTML bento-grid report.
+
+## Two modes — pick based on what the user actually asked for
+
+| | **Manual** (default) | **Auto-deploy** |
+|---|---|---|
+| Trigger phrases | "트렌드 메뉴 클리핑해줘", "어제 인기 메뉴 모아줘" | "매일 자동으로", "6시마다 업데이트", "스케줄러로 돌려줘" |
+| How it runs | This session, right now, using the Browser pane | GitHub Actions, unattended, on a cron schedule |
+| Data source | Live browser automation (see Hard constraints below) | Official YouTube Data API v3 (needs a free API key) |
+| Platforms | YouTube + best-effort Instagram | YouTube only (see why in `references/autodeploy-setup.md`) |
+| Output | One HTML report, published via the `Artifact` tool | A GitHub Pages site that updates itself daily, plus a growing `data/*.json` history |
+| Setup cost | None | ~15 min one-time (API key + repo + secret + Pages) |
+
+If the user wants unattended daily updates, do NOT try to make this session's
+Browser pane do it — a scheduled/cloud run has no access to this desktop
+session's browser or to local `.claude/skills/` files, so the manual method's
+technique cannot run unattended. Instead follow **`references/autodeploy-setup.md`**,
+which walks through scaffolding `assets/autodeploy/` (a ready-to-run Node
+script + GitHub Actions workflow + config file) into the user's own repo.
+That bundle is also the fully portable version of this skill — anyone can
+reuse it by supplying their own API key and `config.json`.
+
+The rest of this file (Hard constraints, Workflow, steps 1–7) describes the
+**manual** mode.
+
+## Hard constraints — verified by testing, do not deviate
+
+**YouTube gives exact view counts. Instagram does not — do not pretend otherwise.**
+
+- YouTube's public watch page exposes an exact view count and exact upload
+  date with no login. Confirmed working method (2026-09-10 test): open the
+  watch page in the Browser pane and call `find` with query `"조회수"` — this
+  reads the **accessibility tree**, not the rendered text. One of the matches
+  is a clean string like `조회수 3,779회 • 2026. 9. 9. • #태그`. **Never use
+  `get_page_text` for the view count** — YouTube renders it as an animated
+  "odometer" of stacked digit spans, and plain text extraction returns a
+  garbled digit soup (verified firsthand). `find`/`read_page` sidestep this
+  because they read the accessibility label, not the visual layout.
+- Instagram blocks anonymous hashtag/keyword search entirely (the explore/tags
+  page redirects straight to a login wall — confirmed by direct test). There
+  is no free, ToS-compliant way to get Instagram view counts without logging
+  in, so Instagram's engagement number is always **like count** (좋아요),
+  never 조회수 — say so explicitly in the report, don't fabricate a view
+  number or blur the two metrics together.
+- A **specific account's own profile page** (`instagram.com/<handle>/`) IS
+  viewable without login (past a dismissable signup modal) and its 3–5 most
+  recent posts are visible — but this is the *only* Instagram discovery path
+  that works; there's no way to search Instagram broadly without login. See
+  step 5 for the full method (brand watchlist, not open discovery) and the
+  `<time datetime="...">` trick for getting an exact timestamp instead of
+  relying on ambiguous relative/no-year display text.
+- Google's index of very recent videos/reels lags by days, so `WebSearch`
+  alone will under-find yesterday's content. Use it for keyword breadth, but
+  treat YouTube's own live search/filter results as the authoritative source
+  for recency.
+- This manual mode reads public pages through browser automation rather than
+  each platform's official API, and doesn't log in as any account. That's
+  what keeps it free and key-free, but it means it's for internal/personal
+  reference use, not for republishing at scale or as a commercial product —
+  say so if the user asks about reselling or mass-automating this specific
+  (browser-based) method. The auto-deploy mode sidesteps this for YouTube by
+  using YouTube's own official Data API instead.
+
+## Workflow
+
+### 0. Confirm the tools exist
+This mode requires the Browser pane tools (`mcp__Claude_Browser__navigate`,
+`find`, `read_page`, `get_page_text`, `browser_batch`). If they're deferred,
+load them with one `ToolSearch select:mcp__Claude_Browser__navigate,mcp__Claude_Browser__find,mcp__Claude_Browser__read_page,mcp__Claude_Browser__get_page_text,mcp__Claude_Browser__browser_batch,mcp__Claude_Browser__preview_start`
+call. If no Browser pane is available in this environment at all, stop and
+tell the user this mode can't run here — don't fall back to `WebFetch` (it
+returns YouTube's un-rendered shell, not the search results — verified: it
+returns only the page footer) or to guessing.
+
+### 1. Resolve the target date
+Default target = "yesterday" in KST (Asia/Seoul), computed from today's date.
+If the user names a different date, use that instead. Keep a display form
+(e.g. "9월 9일") for the report, plus the KST calendar date as the actual
+comparison value — YouTube's match string looks like "2026. 9. 9." (step 4);
+Instagram is matched via the ISO `datetime` attribute (step 5), so convert
+that to its KST calendar date before comparing rather than string-matching it.
+
+### 2. Build a keyword set
+Use exactly 6 Korean food-trend search terms so the search budget stays
+predictable — going wider makes step 4 (which opens each candidate one by
+one) slow without much upside. Default set: `신메뉴`, `이색메뉴`, `신상 디저트`,
+`편의점 신상`, `핫플 디저트`, `인생맛집`. If the user names their own business
+or category, swap 2–3 of these for keywords/brand names specific to it (and
+their direct competitors) — a generic keyword set is the main reason a report
+ends up full of unrelated convenience-store content instead of the user's
+actual category.
+
+### 3. Discover YouTube candidates
+Two discovery paths, both feeding the same verification step (4). Cap the
+total candidate pool at roughly 25 videos (across all keywords, after
+dedup) — enough headroom to reliably fill 10 slots without step 4 ballooning:
+- **Live YouTube search (primary, for recency)**: with the Browser pane, open
+  `https://www.youtube.com/results?search_query=<urlencoded keyword>&sp=EgIIAw%253D%253D`
+  (this exact double-encoded `sp` value is what was verified working — it's
+  the upload filter "이번 주/this week", broad enough to contain yesterday,
+  but there is no official "yesterday-only" filter, hence step 4's exact-date
+  check is mandatory regardless). Read results with `find`/`read_page`, not
+  `get_page_text`, and collect candidate `watch?v=` / `/shorts/` links. Use
+  the visible-but-unverified view count only to triage which candidates are
+  worth opening (skip anything obviously under threshold), never as the
+  number you report.
+- **WebSearch (secondary, for breadth)**: `site:youtube.com/shorts <keyword>`
+  or `site:youtube.com/watch <keyword>` to surface more candidates the live
+  search page didn't show on the first screen.
+
+### 4. Verify each YouTube candidate (mandatory — do not skip)
+For every candidate URL (batch navigate+find pairs with `browser_batch` where
+possible to cut round trips):
+1. Navigate to it in the Browser pane.
+2. Call `find` with query `"조회수"`. If that returns nothing (e.g. an
+   English-locale session renders "views" instead), retry with `find("views")`,
+   then `read_page(filter:"all")` as a last resort. If all three fail, drop
+   the candidate and note it as "확인 불가" — never substitute the search
+   page's unverified number.
+3. Read the match shaped like `조회수 N,NNN회 • YYYY. M. D. • #tags` (or
+   similar — the exact-date field is what matters, not the surrounding text).
+4. Keep it only if the date matches the target date exactly AND the view
+   count ≥ the threshold (default 1,000). Discard everything else — a video
+   that merely says "새 동영상" or a relative time on the search results page
+   is not verified until you've read its exact date this way. **Track why
+   each discarded candidate was dropped** (date mismatch vs. below threshold
+   vs. unverifiable) — step 7's footer reports these counts, and that count
+   is what makes the report auditable instead of a black box.
+
+### 5. Discover + verify Instagram candidates (brand watchlist — not open discovery)
+Hashtag/keyword search is a hard login wall (step-0-level constraint, not
+worth retrying). The only viable path found by testing (2026-09-10) is
+checking specific known accounts directly, which is a fundamentally narrower
+capability than YouTube's open discovery: it can only tell you whether
+**named brands/competitors** posted something yesterday, not surface
+trending content from an arbitrary account. Set that expectation with the
+user up front if they ask for open-ended Instagram trend discovery.
+
+1. Build a short brand/competitor list (5–10) — from the user's business if
+   they named one, otherwise major Korean QSR/카페 chains. For each brand you
+   don't already have a handle for, `WebSearch: "<브랜드명> 공식 인스타그램
+   계정"` and sanity-check the follower count looks right (an inactive
+   lookalike account with a few hundred followers is not the real one — this
+   happened in testing with a wrong `composecoffee` vs. the real
+   `compose_coffee`).
+2. Navigate to `instagram.com/<handle>/`. A signup modal almost always covers
+   the page — screenshot, click its ✕ close button (top-right of the modal),
+   then `find` for `/<handle>/p/` to get the 3–5 most recent post URLs. This
+   works without login; `explore/tags/...` does not (step 0's constraint).
+3. For each post URL, navigate to it and read it with one `javascript_tool` call:
+   ```js
+   const time = document.querySelector('time');
+   const meta = document.querySelector('meta[property="og:description"]');
+   ({datetime: time?.getAttribute('datetime'), desc: meta?.getAttribute('content')})
+   ```
+   `datetime` is the exact upload instant in ISO 8601 UTC — convert it to KST
+   yourself and compare calendar dates. **Do not date-match on anything
+   else**: the visible text is relative ("3시간 전") or a no-year date
+   ("8월 14일"), and `og:description`'s own human-readable date (e.g.
+   "September 8, 2026") runs on a different, unverified timezone — it was
+   observed off by a full day from the `datetime` attribute's true KST date
+   in testing. Only `datetime` is authoritative. `desc` gives the full
+   caption and an exact-as-shown like/comment count in one string
+   (`"N likes, M comments - handle - <date>: "<full caption>"`) — use it for
+   the caption text and the like count, never for the date.
+4. Keep it (as an exact-date match) only if the KST date from `datetime`
+   equals the target date. **Expect zero exact matches on most days for most
+   brands** — accounts don't post daily (verified in testing: 2 of 5 brands
+   checked had zero posts on the target date; the other 3 matched exactly).
+   That's a correct result, not a broken check.
+5. **Fallback, per brand with zero exact matches**: include that brand's
+   single most-recent visible post anyway (pick by like count if more than
+   one is visible), clearly labeled with its real date — never implied to be
+   from the target date. This keeps the Instagram section from going empty
+   on ordinary days while staying honest: step 7 renders these in a visually
+   separate "최근 인기 게시물" group from the exact-date matches, each card
+   showing its own real date instead of the target date.
+6. Large/verified accounts often show a rounded like count ("1만개" / "10K"
+   instead of an exact number) — report it exactly as shown, don't convert
+   it to a fake-precise number.
+7. Report the brand check itself regardless of outcome: "확인한 N개 브랜드
+   중 어제 정확히 게시한 곳 M곳(나머지는 최근 게시물로 대체)".
+
+### 6. Rank and select — per platform, never merged into one sort
+Rank YouTube items by view count and Instagram items by like count as **two
+separate rankings**, each capped at the top N (default 10). Do not merge them
+into a single sorted list — view count and like count are different scales
+(a 2,000-view YouTube video and a 2,000-like Instagram post are not
+equivalent popularity), and sorting them together produces a ranking that
+looks authoritative but isn't measuring one thing. If the user wants a single
+combined "top N regardless of platform," say so explicitly in the report
+instead of silently blending the metrics. If fewer than N survive the filters
+on either platform, show fewer — never pad with items that failed the date or
+threshold check.
+
+### 7. Render the HTML bento grid report
+Load the `artifact-design` skill before writing the page for layout/typography
+guidance. Single self-contained HTML file, one card per item:
+- Grid: `display:grid; grid-template-columns:repeat(4, 1fr); grid-auto-rows:180px;`
+  (adjust column count to viewport). Rank #1 spans `grid-column:span 2;
+  grid-row:span 2;`, ranks #2–#3 span 2×1, the rest are 1×1 — biggest cell to
+  the highest engagement, matching a bento layout.
+- Each card: thumbnail/cover image, a platform badge (▶ YouTube / 📷
+  Instagram), title, channel/account name, the engagement number formatted
+  with commas and correctly labeled (조회수 vs 좋아요, never merged), and the
+  original link. **Thumbnails**: the Artifact tool's CSP blocks hotlinked
+  images from `i.ytimg.com`, so download each thumbnail
+  (`https://i.ytimg.com/vi/<id>/hqdefault.jpg`) with `Bash`/`curl` to the
+  scratchpad, base64-encode it, and inline it as a `data:image/jpeg;base64,...`
+  background — a bare `<img src="https://i.ytimg.com/...">` will silently fail
+  to render. Instagram has no equivalent public image URL without login, so
+  use a platform-colored placeholder for Instagram cards instead.
+- Header shows the exact target date and the filter values used (view/like
+  threshold, top N).
+- If step 5 produced fallback Instagram cards, render them as a visibly
+  separate group (e.g. a second sub-header "최근 인기 게시물 (날짜 다름)")
+  below the exact-date matches, each card showing its own real date — never
+  let a fallback card look like it's from the target date.
+- **Footer must include a methodology block** (this is what makes the report
+  auditable rather than a bare list): the verification method used (exact
+  view/date read from each item's own page, not from search-result estimates),
+  the full keyword list searched, candidate count considered, and a breakdown
+  of why candidates were dropped (date mismatch / below threshold /
+  unverifiable) from step 4. For Instagram, list the brands checked and say
+  how many matched the exact date vs. fell back — "확인한 8개 브랜드 중
+  3곳 어제 게시, 2곳 최근 게시물로 대체" is a complete, honest result.
+
+### 7b. Make it browsable by date (persistent history)
+A single run only has one day's data, but the report should accumulate into
+something browsable over multiple runs. Load the `artifact-capabilities`
+skill, then:
+1. Declare `capabilities: {db: {}}` when publishing.
+2. Build the page to render from a `report` JS object embedded inline (today's
+   real data — this is the first-paint state, not placeholder content) via a
+   render function, so it looks correct even before any async call resolves.
+3. In the page's own script, try `const db = await claude.use("db")`. If it
+   resolves (non-null), query `db.collection("reports").orderBy("date","desc").limit(60).get()`
+   and render a small date-chip row from the results; clicking a chip
+   re-renders the same layout from that document's data. If `db` resolves
+   `null`, just leave the single-date view — that's a correct degraded state,
+   not an error.
+4. After publishing, write this run's data into the store yourself via the
+   `Artifact` tool's `action: "write_db"` (`db_op: "set"`, `collection:
+   "reports"`, `doc_id: "<target date>"`, `data: <the same report object>`)
+   — don't hardcode this or any other day's data into the page's own script;
+   the page only ever reads from `db`, never ships seed rows.
+5. Every future run of this skill against the same published artifact (pass
+   its `url`) adds one more document — the date picker grows on its own,
+   with no schema change needed.
+- Publish with the `Artifact` tool (title reflects the date, e.g. "9월 9일
+  트렌드 메뉴 Top 10", favicon 🍽️) so it's a shareable link, unless the user
+  asked for a local file instead.
+
+## Quick reference
+
+| Platform | Discovery | Verify | Exact metric available | Field to trust |
+|---|---|---|---|---|
+| YouTube | live search page + WebSearch | `find("조회수")` on watch page | view count + upload date | `find`/`read_page`, never `get_page_text` |
+| Instagram | brand handle's own profile page (WebSearch to find the handle if unknown) | `javascript_tool`: `document.querySelector('time').getAttribute('datetime')` on each post page | like count + upload date (no views) | the `<time datetime>` attribute, never the displayed relative/no-year text |
+
+## Common mistakes
+- Reading YouTube's view count with `get_page_text` → garbled digits, wrong
+  numbers. Always use `find`/`read_page`.
+- Treating YouTube's "새 동영상" / "N시간 전" labels on the search results
+  list as date-verified. Those are approximate; only the watch page's exact
+  date line is authoritative.
+- Reporting an Instagram like count as "조회수". Label it "좋아요" — it is a
+  different, smaller metric and conflating them misleads whoever reads the
+  report.
+- Sorting YouTube (views) and Instagram (likes) items into one merged ranking.
+  Rank each platform separately (step 6).
+- Trying to browse `instagram.com/explore/tags/...` — it redirects to a login
+  wall with no exception. Only a specific account's own profile page works.
+- Reading an Instagram post's displayed date/time text instead of its
+  `<time datetime="...">` attribute — the displayed text is relative ("3시간
+  전") for recent posts and a no-year absolute date for older ones, both
+  ambiguous. Read the attribute via `javascript_tool`.
+- Treating a day with zero qualifying Instagram brand posts as a bug and
+  either skipping the platform silently or lowering the bar to force a
+  result. Most brands don't post daily — report the count checked and the
+  count qualifying, honestly, even when that's 0.
+- Padding the top-10 list with items that don't match the exact date just to
+  reach N. Show fewer items instead.
+- Hotlinking `i.ytimg.com` thumbnails directly in the Artifact HTML — its CSP
+  blocks that host, so the image silently never loads. Download + base64
+  the thumbnail instead (step 7).
+- Skipping the footer methodology block. Without candidate/rejection counts,
+  the report reads as authoritative but can't actually be audited.
+
+## Changing the defaults
+Threshold (1,000), count (10), and the keyword set (6 terms) are just the
+values used the first time this skill was set up — if the user asks for
+different numbers, or names their own business/category/competitors, change
+those in steps 2–6; nothing else in the workflow changes.
+
+## Need unattended daily updates instead?
+Don't try to schedule the manual mode above — see the "Two modes" section at
+the top of this file and go to `references/autodeploy-setup.md`.
+
+## A third option, if the Hound plugin is installed
+If the `hound` plugin's `scripts/yt_collect.py` is available, it's often
+better than this file's own manual browser method for the YouTube half:
+it uses `yt-dlp` (no API key, no Browser pane), filters by upload period at
+the search level, re-checks each candidate's exact timestamp itself, and can
+cap results per channel (`--per-channel`) — which directly avoids the
+"top 10 is 5 convenience-store channels" problem this skill has hit before.
+Point it at a topic pack built from this skill's `assets/autodeploy/config.json`
+keywords, run with a ~2-day window, then post-filter the output's exact
+`timestamp` field to the target KST date yourself (the tool's window is
+rolling, not calendar-exact). Still render with this skill's bento-grid
+design (steps 6–7) for consistency. Instagram is still out of scope either way.

@@ -1,0 +1,29 @@
+{
+  "siteTitle": "트렌드 메뉴 클리핑",
+  "timezone": "Asia/Seoul",
+  "regionCode": "KR",
+  "relevanceLanguage": "ko",
+  "viewThreshold": 1000,
+  "topN": 10,
+  "maxResultsPerKeyword": 25,
+  "keywords": [
+    "신메뉴",
+    "이색메뉴",
+    "신상 디저트",
+    "편의점 신상",
+    "핫플 디저트",
+    "인생맛집"
+  ],
+  "brandTags": [
+    "컴포즈커피",
+    "메가커피",
+    "맘스터치",
+    "CU",
+    "GS25",
+    "이마트24",
+    "투썸플레이스",
+    "스타벅스",
+    "엽떡",
+    "두찜"
+  ]
+}
