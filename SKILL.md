@@ -52,6 +52,9 @@ pip install -r requirements.txt   # yt-dlp; only the keyless path needs it
 python scripts/build.py     # yesterday's qualifying videos -> data/<date>.json
 python scripts/verify.py    # quality gate; stops here if the data is bad
 python scripts/render.py    # write docs/index.html
+
+# 4. optional: prove this copy's rules match the reference, offline
+python scripts/selftest.py  # 17 checks, no network, no API key
 ```
 
 Open `docs/index.html` in a browser to see it (double-clicking the file works).
@@ -61,6 +64,56 @@ python.org with "Add Python to PATH" ticked, rather than debugging pip.
 
 Publish the result with the `Artifact` tool if the user wants a link rather than
 a local file.
+
+### Will someone else running this get the same result?
+
+Two different answers, and conflating them is the trap. Say both.
+
+**The rules: yes, identically.** Filtering, the quality gate, tier/brand
+classification and rendering are pure functions of the data file and
+`config.json`. Same input, same verdict, on any machine, in any timezone, with
+any console codepage. `python scripts/selftest.py` proves it on the spot: 17
+checks run offline against fixed fixtures in `tests/fixture.json`, including
+the four false positives that reached a live page (SpongeBob recaps, a cat-food
+clip, a US news item, a Tokyo travel guide). If someone's copy drifted, this
+fails and names the rule.
+
+**The published top-10: no, and it cannot be.** Three reasons, all in the data
+rather than the code:
+
+| 원인 | 결과 |
+|---|---|
+| 조회수는 계속 오른다 | 07시 실행과 20시 실행의 순위가 다르다. 어제 올라온 영상은 아직 빠르게 조회수가 붙는 구간이다 |
+| 엔진이 두 개다 | API 키가 있으면 Data API, 없으면 yt-dlp. 후보 풀 자체가 다르다 |
+| 유튜브 검색이 개인화·지역화된다 | 키워드 검색 결과가 IP와 시점에 따라 달라진다 |
+
+**실측.** 이 저장소를 새로 클론해서 제3자와 똑같은 조건(키 없음, yt-dlp)으로
+2026-09-14를 수집하고, 같은 날 API로 발행된 리포트와 대조했다.
+
+| | 클론 (키 없음) | 발행본 (API 키) |
+|---|---|---|
+| 수집 건수 | **4건** | **10건** |
+| 겹치는 영상 | 2건 (20%) | 2건 (20%) |
+| 겹친 영상의 조회수 차이 | +149 / +269 (하루 사이 증가분) | 기준 |
+| 검증 게이트 판정 | 통과(경고 2) | 통과(경고 0) |
+
+두 가지를 동시에 말해준다. 첫째, 겹친 2건은 **같은 규칙이 같은 영상을
+골라냈다**는 뜻이고 조회수 차이는 순수하게 시점 차이다. 둘째 — 그리고 이쪽이
+실무적으로 더 중요하다 — **키 없이 돌리면 결과가 눈에 띄게 빈약하다.** 원인은
+yt-dlp가 쓸 수 있는 유튜브 검색 필터가 "이번 주"까지뿐이라 후보 112건 중 35건이
+날짜 불일치로 탈락하는 반면, Data API는 서버에서 해당 날짜만 잘라 오기 때문이다.
+
+그래서 남에게 권할 때의 정직한 순서는 이렇다: **키 없이 한 번 돌려 동작을
+확인하고, 계속 쓸 거면 무료 API 키를 발급받아라**(5분, 무료 한도의 6% 사용).
+키 없는 경로는 "체험용"이지 "매일 쓰는 용"이 아니다.
+
+So the honest claim is: **the same rules, applied to a moving source.** Two
+people on the same date get overlapping lists where the strongest items
+recur, not byte-identical files. A report that claimed otherwise would be
+lying about what it reads. What *is* auditable is that every published number
+came from that video's own metadata (nothing estimated), and that every
+published item passes the same gate — which is exactly what `selftest.py` and
+`verify.py` let a third party check without trusting the operator.
 
 ### Tune `config.json` to the person asking, before running
 The defaults target Korean franchise food. A generic keyword set is the single
