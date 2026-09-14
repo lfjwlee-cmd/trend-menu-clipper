@@ -1,0 +1,78 @@
+name: Daily Trend Menu Report
+
+on:
+  schedule:
+    # Target: the report is up before 06:30 KST.
+    #
+    # 21:30 UTC (= 06:30 KST) was the obvious setting, but GitHub's scheduler
+    # ran it 1.5-2h late every time (observed 08:29 / 08:10 / 08:21 KST), so
+    # this fires at 19:20 UTC (= 04:20 KST), leaving ~2h10m of headroom before
+    # 06:30. Running early is harmless: the target date is computed from the
+    # KST clock at run time, so it still resolves to the previous calendar day
+    # whether the job starts at 04:20 or slips to 07:00.
+    # Odd minutes are also less congested than :00 and :30.
+    - cron: "20 19 * * *"
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "특정 날짜로 실행 (YYYY-MM-DD, 비우면 어제)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-report
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # yt-dlp is only the local/no-key fallback. On GitHub runners YouTube
+      # answers per-video requests with "Sign in to confirm you're not a bot"
+      # (verified: 40/40 blocked), so CI needs the official API key.
+      - name: Check API key
+        run: |
+          if [ -z "${{ secrets.YOUTUBE_API_KEY }}" ]; then
+            echo "::error::YOUTUBE_API_KEY secret is not set. Settings > Secrets and variables > Actions > New repository secret."
+            exit 1
+          fi
+
+      # NAVER_* is optional: without it the Naver mention section is skipped
+      # and the page says so, rather than the run failing.
+      - name: Collect
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          NAVER_CLIENT_ID: ${{ secrets.NAVER_CLIENT_ID }}
+          NAVER_CLIENT_SECRET: ${{ secrets.NAVER_CLIENT_SECRET }}
+          TARGET_DATE: ${{ inputs.target_date }}
+          PYTHONIOENCODING: utf-8
+        run: python scripts/build.py
+
+      # Quality gate. A hard failure stops the job here, so docs/ is never
+      # overwritten and yesterday's published page stays live.
+      - name: Verify
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python scripts/verify.py
+
+      - name: Render
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python scripts/render.py
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "trend-menu-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs data
+          git diff --cached --quiet || git commit -m "Trend menu report $(TZ=Asia/Seoul date +%F)"
+          git push

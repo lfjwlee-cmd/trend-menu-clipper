@@ -7,9 +7,10 @@ description: >
   유튜브 인기 메뉴", "신메뉴 트렌드 리포트 만들어줘", or "매일 자동으로
   업데이트되는 트렌드 메뉴 사이트 만들어줘". Filters by exact upload date and
   a minimum engagement count, ranks the top N, and renders an HTML bento-grid
-  report. Has two modes: an on-demand manual run (no API key, login, or paid
-  service) and an optional auto-deploy mode (GitHub Actions + a free YouTube
-  API key) for unattended daily updates.
+  report. Bundles a ready-to-run collect/verify/render pipeline that produces
+  the HTML immediately with no API key, login, or account, plus an optional
+  browser-driven mode that can also cover Instagram and an optional GitHub
+  Actions deploy for unattended daily updates.
 ---
 
 # Trend Menu Clipper
@@ -18,28 +19,86 @@ Collects Korean food/menu content uploaded on one exact calendar date, keeps
 only items above an engagement threshold, ranks the top N, and renders them
 as a single HTML bento-grid report.
 
-## Two modes — pick based on what the user actually asked for
+## Start here: run the pipeline. It needs nothing from the user.
 
-| | **Manual** (default) | **Auto-deploy** |
-|---|---|---|
-| Trigger phrases | "트렌드 메뉴 클리핑해줘", "어제 인기 메뉴 모아줘" | "매일 자동으로", "6시마다 업데이트", "스케줄러로 돌려줘" |
-| How it runs | This session, right now, using the Browser pane | GitHub Actions, unattended, on a cron schedule |
-| Data source | Live browser automation (see Hard constraints below) | Official YouTube Data API v3 (needs a free API key) |
-| Platforms | YouTube + best-effort Instagram | YouTube only (see why in `references/autodeploy-setup.md`) |
-| Output | One HTML report, published via the `Artifact` tool | A GitHub Pages site that updates itself daily, plus a growing `data/*.json` history |
-| Setup cost | None | ~15 min one-time (API key + repo + secret + Pages) |
+`assets/pipeline/` is a working collect → verify → render pipeline. Copy it to a
+folder and run three commands; an HTML report comes out the other end. **No API
+key, no login, no GitHub account** — yt-dlp reads YouTube's public pages, which
+works fine from an ordinary home or office network.
 
-If the user wants unattended daily updates, do NOT try to make this session's
-Browser pane do it — a scheduled/cloud run has no access to this desktop
-session's browser or to local `.claude/skills/` files, so the manual method's
-technique cannot run unattended. Instead follow **`references/autodeploy-setup.md`**,
-which walks through scaffolding `assets/autodeploy/` (a ready-to-run Node
-script + GitHub Actions workflow + config file) into the user's own repo.
-That bundle is also the fully portable version of this skill — anyone can
-reuse it by supplying their own API key and `config.json`.
+```bash
+pip install yt-dlp
+python scripts/build.py     # collect yesterday's qualifying videos -> data/<date>.json
+python scripts/verify.py    # quality gate; stops here if the data is bad
+python scripts/render.py    # write docs/index.html
+```
 
-The rest of this file (Hard constraints, Workflow, steps 1–7) describes the
-**manual** mode.
+Then open `docs/index.html`, or publish it with the `Artifact` tool so the user
+gets a link. Adapt `config.json` (keywords, brands, thresholds) to whoever is
+asking before running — the defaults target Korean franchise food, and a generic
+keyword set is the main reason a report comes back full of unrelated content.
+
+This is the path to use for almost every request, including a first-time user
+who just wants to see what the thing produces. Reach past it only when the user
+asks for something it cannot do:
+
+| The user wants | Go to |
+|---|---|
+| A report, now | the three commands above |
+| Instagram included | **Manual mode** (steps 0–7 below) — needs a human-driven browser |
+| It to update itself every morning | **Daily deploy** (`references/autodeploy-setup.md`) |
+
+### Expect fewer items without a key, and say so
+Measured on the same day, same config: the no-key path published **4** items,
+the API path **10**. The reason is the date filter. yt-dlp can only narrow
+YouTube's search to "this week", so roughly six of every seven candidates are
+thrown away by the exact-date check (32 date rejections in that run), while the
+API filters by publish time server-side and almost nothing is wasted. Both
+runs are honest — the gate simply has less to work with. If the user wants a
+consistently full board, that is the reason to spend five minutes on a free
+API key, and `build.py` will pick it up with no other change.
+
+### Why the pipeline needs no key but the daily deploy does
+The same yt-dlp code was run from a GitHub Actions runner and **every one of 40
+per-video requests came back `Sign in to confirm you're not a bot`** — YouTube
+blocks datacenter IPs, not the technique. Searching still worked; only the
+per-video metadata calls were refused. So a scheduled cloud run needs the
+official Data API (free key), while a person running it from their own machine
+does not. `build.py` switches automatically: `YOUTUBE_API_KEY` set → official
+API, unset → yt-dlp. Do not try to defeat the bot check.
+
+## What the pipeline produces
+
+- `docs/index.html` — bento-grid report for the target date
+- `docs/archive/<date>.html` + `docs/archive/index.html` — one page per run, browsable by date
+- `data/<date>.json` — the run's raw data, so history accumulates across runs
+- `data/<date>.verify.json` — what the quality gate checked and found
+
+The report carries its own audit trail: candidates considered, how many were
+dropped and why, and a pass/warn badge from `verify.py`. That block is the
+difference between a list of links and something someone can act on.
+
+## The quality gate (`verify.py`) — do not bypass it
+
+It encodes four review perspectives that were applied to this report by hand.
+**Hard failures block publishing** so a bad run leaves the previous report up;
+soft warnings publish but show on the page.
+
+| Blocks publishing | Publishes with a warning |
+|---|---|
+| An item's upload date ≠ the target date | Fewer than 5 items |
+| An item below the view threshold | Under 30% are actual product launches |
+| Duplicate videos | No tracked brand mentioned |
+| >20% of fetches unverifiable | Naver term lookups partially failed |
+| One channel over the per-channel cap | |
+| Instagram item carrying a `views` field, or a fallback post with no real date | |
+| Naver metric labelled anything but 언급 건수 | |
+
+If a run fails the gate, report what it caught — do not loosen the thresholds
+to force a result.
+
+The rest of this file (Hard constraints, Workflow, steps 0–7) describes
+**manual mode**: the browser-driven path that can also cover Instagram.
 
 ## Hard constraints — verified by testing, do not deviate
 
@@ -312,8 +371,22 @@ different numbers, or names their own business/category/competitors, change
 those in steps 2–6; nothing else in the workflow changes.
 
 ## Need unattended daily updates instead?
-Don't try to schedule the manual mode above — see the "Two modes" section at
-the top of this file and go to `references/autodeploy-setup.md`.
+Don't try to schedule manual mode — a cloud run reaches neither this session's
+browser nor local `.claude/skills/` files. Copy `assets/pipeline/` into the
+user's own repo and follow `references/autodeploy-setup.md`: it needs a free
+YouTube Data API key (because of the datacenter-IP block described at the top),
+a repo secret, and GitHub Pages.
+
+Two things that cost real time if missed:
+- **GitHub's scheduler runs late.** Measured on a live repo: a `06:30 KST` cron
+  actually fired at 08:29 / 08:10 / 08:21. Set the cron ~2h earlier than the
+  time the user asked for. Running early is safe — the target date is computed
+  from the KST clock at run time either way.
+- **Naver is optional and additive.** `scripts/naver.py` counts blog/cafe
+  mentions if `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET` are set. Its API returns
+  no view or like count, so it is a mention count, never a ranking — keep it
+  visually separate from the YouTube grid. Naver keys from the Developers
+  Center stop working 2027-06-30 (migration to NAVER API HUB).
 
 ## A third option, if the Hound plugin is installed
 If the `hound` plugin's `scripts/yt_collect.py` is available, it's often
@@ -322,7 +395,7 @@ it uses `yt-dlp` (no API key, no Browser pane), filters by upload period at
 the search level, re-checks each candidate's exact timestamp itself, and can
 cap results per channel (`--per-channel`) — which directly avoids the
 "top 10 is 5 convenience-store channels" problem this skill has hit before.
-Point it at a topic pack built from this skill's `assets/autodeploy/config.json`
+Point it at a topic pack built from this skill's `assets/pipeline/config.json`
 keywords, run with a ~2-day window, then post-filter the output's exact
 `timestamp` field to the target KST date yourself (the tool's window is
 rolling, not calendar-exact). Still render with this skill's bento-grid
