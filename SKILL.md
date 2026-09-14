@@ -19,24 +19,66 @@ Collects Korean food/menu content uploaded on one exact calendar date, keeps
 only items above an engagement threshold, ranks the top N, and renders them
 as a single HTML bento-grid report.
 
-## Start here: run the pipeline. It needs nothing from the user.
+## 이 스킬을 받은 사람이 설치하는 법
 
-`assets/pipeline/` is a working collect → verify → render pipeline. Copy it to a
-folder and run three commands; an HTML report comes out the other end. **No API
-key, no login, no GitHub account** — yt-dlp reads YouTube's public pages, which
-works fine from an ordinary home or office network.
+저장소 하나가 전부다. API 키도 계정도 필요 없고, 받는 사람 고유 설정만 바꾸면 된다.
 
 ```bash
-pip install yt-dlp
-python scripts/build.py     # collect yesterday's qualifying videos -> data/<date>.json
+git clone https://github.com/lfjwlee-cmd/trend-menu-clipper.git \
+  ~/.claude/skills/trend-menu-clipper
+```
+
+Claude Code를 다시 시작하면 스킬 목록에 잡힌다. 클론이 어려우면 ZIP으로 받아
+`.claude/skills/trend-menu-clipper/` 에 풀어도 똑같다. 그 뒤는 아래 3줄이면 끝이다.
+
+## Start here: run the pipeline. It needs nothing from the user.
+
+`assets/pipeline/` is a working collect → verify → render pipeline. Copy the
+folder, work **inside it**, and run three commands; an HTML report comes out the
+other end. **No API key, no login, no GitHub account** — yt-dlp reads YouTube's
+public pages, which works fine from an ordinary home or office network.
+
+```bash
+# 1. copy the whole assets/pipeline folder somewhere the user can find it,
+#    then change into that copy. The scripts resolve paths from their own
+#    location, so running them from anywhere else fails on the first line.
+cd <the copied pipeline folder>
+
+# 2. Python 3.7+ must be on PATH. On Windows `python` is often `py`:
+python --version || py --version
+
+# 3. collect -> verify -> render
+pip install -r requirements.txt   # yt-dlp; only the keyless path needs it
+python scripts/build.py     # yesterday's qualifying videos -> data/<date>.json
 python scripts/verify.py    # quality gate; stops here if the data is bad
 python scripts/render.py    # write docs/index.html
 ```
 
-Then open `docs/index.html`, or publish it with the `Artifact` tool so the user
-gets a link. Adapt `config.json` (keywords, brands, thresholds) to whoever is
-asking before running — the defaults target Korean franchise food, and a generic
-keyword set is the main reason a report comes back full of unrelated content.
+Open `docs/index.html` in a browser to see it (double-clicking the file works).
+If `python` is not recognised, substitute `py` in all three commands. If `pip
+install yt-dlp` fails, Python is either missing or not on PATH — install it from
+python.org with "Add Python to PATH" ticked, rather than debugging pip.
+
+Publish the result with the `Artifact` tool if the user wants a link rather than
+a local file.
+
+### Tune `config.json` to the person asking, before running
+The defaults target Korean franchise food. A generic keyword set is the single
+biggest reason a report comes back full of unrelated content.
+
+| 설정 | 뜻 | 기본값 |
+|---|---|---|
+| `keywords` | 유튜브에 검색할 말. 업종에 맞게 바꾸는 게 결과를 가장 크게 바꾼다 | 신메뉴·이색메뉴·신상 디저트 등 6개 |
+| `viewThreshold` | 이 조회수 미만은 버린다 | 1000 |
+| `topN` | 최종 게재 건수. 모자라면 빈자리를 채우지 않는다 | 10 |
+| `perChannel` | 한 채널에서 최대 몇 건까지 실을지. 한 채널 독식을 막는다 | 2 |
+| `perKeyword` / `maxCandidates` | 키워드당·전체 후보 상한. 늘리면 느려지고 결과가 늘 수 있다 | 30 / 120 |
+| `includeWords` | 이 중 하나는 있어야 음식 콘텐츠로 본다 | 메뉴·디저트·편의점 등 |
+| `excludeWords` | 하나라도 있으면 버린다. 오탐을 보고 늘려간다 | 여행·만화·반려동물 등 |
+| `excludeChannels` | 채널명에 있으면 통째로 버린다 | 오탐을 낸 채널 |
+| `coreWords` | 이 중 하나가 있으면 "신메뉴·신상"으로 분류, 없으면 "푸드 콘텐츠" | 신메뉴·출시·한정 등 |
+| `brandTags` | 제목에 있으면 카드에 브랜드 칩을 단다 | 주요 프랜차이즈 12곳 |
+| `requireHangul` | 한글이 없는 콘텐츠를 버린다(해외 기사 차단) | true |
 
 ### Read the published titles before calling it done
 The filter passes things a person would reject on sight. Two SpongeBob episode
