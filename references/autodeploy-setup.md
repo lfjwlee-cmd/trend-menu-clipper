@@ -37,7 +37,7 @@
 
 1. 새 저장소 생성 (Public이면 Pages가 무료)
 2. `assets/pipeline/` 안의 파일 전체를 저장소 루트에 복사해 커밋 & 푸시
-   - `config.json`, `scripts/`(build·verify·render·naver), `.github/workflows/daily.yml`,
+   - `config.json`, `scripts/`(build·verify·render), `.github/workflows/daily.yml`,
      빈 `docs/`, `data/`
 3. `config.json`을 사용자 업종에 맞게 수정 — 특히 `keywords`와 `brandTags`.
    기본값은 한국 프랜차이즈 외식이다.
@@ -46,10 +46,9 @@
 
 저장소 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
 
-| 이름 | 필수 | 용도 |
-|---|---|---|
-| `YOUTUBE_API_KEY` | 필수 | 유튜브 수집 |
-| `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | 선택 | 네이버 블로그·카페 언급 집계 |
+| 이름 | 용도 |
+|---|---|
+| `YOUTUBE_API_KEY` | 유튜브 수집 (필수) |
 
 **등록 후 반드시 확인한다.** "저장했다"는 말만 믿지 말 것 — 실제로 Add secret 버튼이
 안 눌린 경우가 있었다. API로 이름만 조회하면 값 노출 없이 확인된다:
@@ -88,18 +87,6 @@ GitHub 스케줄러는 정시에 돌지 않는다. 실측값이다.
 전에 올라오도록 여유를 뒀다. 일찍 도는 건 무해하다 — 수집 대상일은 실행 시점의 KST
 시계로 계산하므로, 04:20에 돌든 07:00으로 밀리든 똑같이 "어제"가 된다.
 `:00`이나 `:30`보다 어중간한 분이 덜 붐빈다.
-
-## 네이버 (선택)
-
-https://developers.naver.com → 애플리케이션 등록 → **검색** API → Client ID/Secret 발급.
-
-**이 수치는 순위가 아니라 언급 건수다.** 네이버 검색 API 응답 필드는
-`title`·`link`·`description`·`bloggername`·`postdate`뿐이고 조회수·좋아요·댓글 수가 없다.
-그래서 유튜브처럼 정렬·하한을 못 걸고, "어제 이 브랜드가 블로그·카페에서 몇 번 언급됐나"만
-센다. 리포트에서도 막대그래프로 유튜브 카드와 시각적으로 분리해 보여준다.
-
-> ⚠️ 네이버가 **NAVER API HUB**로 이전 중이며 기존 Developers Center 키는
-> **2027-06-30**에 중지된다.
 
 ## 다른 사람이 그대로 쓰는 경우
 

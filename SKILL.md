@@ -8,9 +8,9 @@ description: >
   업데이트되는 트렌드 메뉴 사이트 만들어줘". Filters by exact upload date and
   a minimum engagement count, ranks the top N, and renders an HTML bento-grid
   report. Bundles a ready-to-run collect/verify/render pipeline that produces
-  the HTML immediately with no API key, login, or account, plus an optional
-  browser-driven mode that can also cover Instagram and an optional GitHub
-  Actions deploy for unattended daily updates.
+  the HTML in three commands with no API key, login, or account. Also covers a
+  browser-driven mode that can include Instagram, and a GitHub Actions deploy
+  that publishes to GitHub Pages every morning.
 ---
 
 # Trend Menu Clipper
@@ -37,6 +37,20 @@ Then open `docs/index.html`, or publish it with the `Artifact` tool so the user
 gets a link. Adapt `config.json` (keywords, brands, thresholds) to whoever is
 asking before running — the defaults target Korean franchise food, and a generic
 keyword set is the main reason a report comes back full of unrelated content.
+
+### Read the published titles before calling it done
+The filter passes things a person would reject on sight. Two SpongeBob episode
+recaps once ranked 4th and 10th on a menu-trend report, because "집게리아
+신메뉴" (the Krusty Krab's new menu) satisfies a food-word filter perfectly.
+Fiction is the hard class: it uses the vocabulary correctly and only the subject
+matter gives it away.
+
+So scan the ten titles before handing the report over, and when something
+obviously wrong is there, **add its channel to `excludeChannels`** rather than
+guessing at words. A channel that recaps cartoons will do it again tomorrow
+under a different title; blocking the channel ends it permanently, and the
+freed slots refill with real items. Tell the user about this list too — they
+will spot bad entries faster than any keyword rule will.
 
 This is the path to use for almost every request, including a first-time user
 who just wants to see what the thing produces. Reach past it only when the user
@@ -89,10 +103,9 @@ soft warnings publish but show on the page.
 | An item's upload date ≠ the target date | Fewer than 5 items |
 | An item below the view threshold | Under 30% are actual product launches |
 | Duplicate videos | No tracked brand mentioned |
-| >20% of fetches unverifiable | Naver term lookups partially failed |
+| >20% of fetches unverifiable | |
 | One channel over the per-channel cap | |
 | Instagram item carrying a `views` field, or a fallback post with no real date | |
-| Naver metric labelled anything but 언급 건수 | |
 
 If a run fails the gate, report what it caught — do not loosen the thresholds
 to force a result.
@@ -382,11 +395,7 @@ Two things that cost real time if missed:
   actually fired at 08:29 / 08:10 / 08:21. Set the cron ~2h earlier than the
   time the user asked for. Running early is safe — the target date is computed
   from the KST clock at run time either way.
-- **Naver is optional and additive.** `scripts/naver.py` counts blog/cafe
-  mentions if `NAVER_CLIENT_ID`/`NAVER_CLIENT_SECRET` are set. Its API returns
-  no view or like count, so it is a mention count, never a ranking — keep it
-  visually separate from the YouTube grid. Naver keys from the Developers
-  Center stop working 2027-06-30 (migration to NAVER API HUB).
+
 
 ## A third option, if the Hound plugin is installed
 If the `hound` plugin's `scripts/yt_collect.py` is available, it's often
